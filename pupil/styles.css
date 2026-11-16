@@ -293,3 +293,12 @@ input:focus-visible {
     flex-direction: column;
   }
 }
+
+.question-heading {
+  margin-top: 22px;
+}
+h2:focus,
+h3:focus {
+  outline: 3px solid #77b8e2;
+  outline-offset: 4px;
+}

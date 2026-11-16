@@ -23,14 +23,22 @@ let code = "",
   timer = null,
   lastFeedback = null,
   exitModal = false,
-  timeoutPending = false;
+  timeoutPending = false,
+  activeScreen = "login",
+  finishPending = false;
 const esc = (s) =>
   String(s ?? "").replace(
     /[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
   );
 function show(id) {
+  activeScreen = id;
   screens.forEach((s) => $(s).classList.toggle("hidden", s !== id));
+  const heading = $(id).querySelector("h2, h3");
+  if (heading) {
+    heading.tabIndex = -1;
+    heading.focus();
+  }
   window.scrollTo(0, 0);
 }
 function stopTimer() {
@@ -40,7 +48,10 @@ function stopTimer() {
   }
 }
 function clock(n) {
-  return "00:" + String(Math.max(0, n)).padStart(2, "0");
+  const value = Math.max(0, Math.ceil(Number(n) || 0));
+  return (
+    String(Math.floor(value / 60)).padStart(2, "0") + ":" + String(value % 60).padStart(2, "0")
+  );
 }
 function unwrap(v) {
   return Array.isArray(v) ? v[0] : v;
@@ -74,6 +85,7 @@ async function rpc(name, params) {
 }
 const api = {
   home: (c) => rpc("get_current_pupil_homework", { entered_code: c }),
+  timing: (c, id) => rpc("get_pupil_quiz_timing", { entered_code: c, entered_quiz_id: id }),
   start: (c, id) => rpc("start_pupil_quiz", { entered_code: c, entered_quiz_id: id }),
   open: (a) =>
     rpc("open_pupil_question", { entered_attempt_id: a.id, entered_attempt_token: a.token }),
@@ -87,7 +99,10 @@ const api = {
     rpc("complete_pupil_quiz", { entered_attempt_id: a.id, entered_attempt_token: a.token }),
 };
 function connectionError(err) {
-  console.error("History Hub:", err);
+  $("offlineMessage").textContent = attempt
+    ? "Your confirmed answers are saved. The server timer continues while you are disconnected."
+    : "Homework could not be loaded. Please reconnect and try again.";
+  closeExit(false);
   stopTimer();
   $("offlineDetail").textContent =
     "Please try reconnecting. If the problem continues, tell your History teacher.";
@@ -128,6 +143,20 @@ async function loadHome() {
       show("home");
       return;
     }
+    const timing = await api.timing(code, h.quiz_id);
+    if (
+      !Array.isArray(timing?.time_limits) ||
+      !timing.time_limits.length ||
+      !timing.time_limits.every((t) => Number(t.seconds) > 0 && Number(t.questions) > 0)
+    )
+      throw Error("Question timing is unavailable");
+    $("instructionTiming").textContent =
+      timing.time_limits
+        .map(
+          (t) =>
+            `${t.questions} ${Number(t.questions) === 1 ? "question" : "questions"}: ${clock(t.seconds)} each`,
+        )
+        .join("; ") + ". The timer starts when each question opens.";
     const total = stats(),
       pass = Number(h.pass_mark || 80),
       threshold = Math.ceil((total * pass) / 100),
@@ -202,6 +231,7 @@ async function start() {
   busy = true;
   show("loading");
   try {
+    finishPending = false;
     const a = await api.start(code, homework.quiz_id);
     if (!a?.attempt_id || !a?.attempt_token) throw Error("No quiz session returned");
     attempt = { id: a.attempt_id, token: a.attempt_token };
@@ -219,7 +249,13 @@ async function openQuestion() {
   timeoutPending = false;
   stopTimer();
   show("loading");
-  const q = await api.open(attempt);
+  let q;
+  try {
+    q = await api.open(attempt);
+  } catch (error) {
+    if (error.message === "All questions answered; complete the quiz") return finish();
+    throw error;
+  }
   if (!q || !Array.isArray(q.answer_options) || q.answer_options.length !== 4)
     throw Error("Invalid question response");
   current = {
@@ -234,6 +270,7 @@ async function openQuestion() {
   $("qNumber").textContent = `Question ${current.number} of ${stats()}`;
   $("progressBar").style.width = ((current.number - 1) / stats()) * 100 + "%";
   $("questionText").textContent = current.text;
+  $("questionTiming").textContent = `Time allowed for this question: ${clock(current.limit)}.`;
   $("questionError").textContent = "";
   $("feedback").className = "feedback hidden";
   $("submitAnswer").classList.remove("hidden");
@@ -245,13 +282,33 @@ async function openQuestion() {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "option";
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", "false");
+    b.tabIndex = i === 0 ? 0 : -1;
     b.innerHTML = '<span class="circle" aria-hidden="true"></span><span>' + esc(value) + "</span>";
     b.onclick = () => {
       if (answered || busy) return;
       selected = i;
-      options.querySelectorAll("button").forEach((el) => el.classList.remove("selected"));
+      options.querySelectorAll("button").forEach((el) => {
+        el.classList.remove("selected");
+        el.setAttribute("aria-checked", "false");
+        el.tabIndex = -1;
+      });
       b.classList.add("selected");
+      b.setAttribute("aria-checked", "true");
+      b.tabIndex = 0;
       $("submitAnswer").disabled = false;
+    };
+    b.onkeydown = (event) => {
+      const directions = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+      if (answered || busy || !(event.key in directions)) return;
+      event.preventDefault();
+      const target =
+        options.children[
+          (i + directions[event.key] + current.options.length) % current.options.length
+        ];
+      target.focus();
+      target.click();
     };
     options.append(b);
   });
@@ -291,6 +348,12 @@ async function submit(timedOut) {
     const r = await api.answer(attempt, timedOut ? null : selected);
     if (typeof r?.answer_correct !== "boolean") throw Error("Missing marking response");
     answered = true;
+    $("options")
+      .querySelectorAll("button")
+      .forEach((b) => {
+        b.disabled = true;
+      });
+    updateExitProgress();
     lastFeedback = r;
     const correctIndex = Number(r.correct_option),
       correctText = current.options[correctIndex] ?? "Unavailable";
@@ -304,6 +367,7 @@ async function submit(timedOut) {
     $("submitAnswer").classList.add("hidden");
     $("nextQuestion").classList.remove("hidden");
     $("nextQuestion").textContent = current.number >= stats() ? "See Your Result" : "Next Question";
+    if (!exitModal) $("nextQuestion").focus();
   } catch (e) {
     if (!codeRateError(e)) connectionError(e);
   } finally {
@@ -325,6 +389,7 @@ $("nextQuestion").onclick = async () => {
   }
 };
 async function finish() {
+  finishPending = true;
   stopTimer();
   show("loading");
   const r = await api.finish(attempt);
@@ -332,6 +397,7 @@ async function finish() {
     score = Number(r.final_score),
     passed = Boolean(r.passed);
   if (!Number.isFinite(score) || !Number.isFinite(total)) throw Error("Invalid result");
+  finishPending = false;
   $("resultIcon").textContent = passed ? "🎉" : "📚";
   $("resultIcon").className = "check " + (passed ? "confetti" : "");
   $("resultHeading").textContent = passed ? "Homework Complete!" : "Not quite there yet";
@@ -352,40 +418,91 @@ async function finish() {
   };
   show("result");
 }
+function updateExitProgress() {
+  if (!current) return;
+  const saved = answered ? current.number : current.number - 1;
+  $("exitProgress").textContent =
+    saved === 0
+      ? "No answers have been confirmed yet. Your question timer continues while this dialog is open."
+      : `Your confirmed answers through Question ${saved} are saved. Your question timer continues while this dialog is open.`;
+}
+function closeExit(restore = true) {
+  if (!exitModal) return;
+  $("overlay").classList.add("hidden");
+  document.querySelector("main").inert = false;
+  document.querySelector("header").inert = false;
+  exitModal = false;
+  if (restore && activeScreen === "question") $("exitQuiz").focus();
+}
 $("exitQuiz").onclick = () => {
   exitModal = true;
-  $("exitProgress").textContent =
-    `Your confirmed answers up to Question ${current.number - 1} are saved.`;
+  updateExitProgress();
   $("overlay").classList.remove("hidden");
+  document.querySelector("main").inert = true;
+  document.querySelector("header").inert = true;
+  $("stay").focus();
 };
 $("stay").onclick = () => {
-  $("overlay").classList.add("hidden");
-  exitModal = false;
-  if (!answered) {
-    updateTimer();
-  }
+  closeExit();
+  if (!answered) updateTimer();
 };
+$("overlay").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    $("stay").click();
+  } else if (event.key === "Tab") {
+    const first = $("stay"),
+      last = $("saveExit");
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+});
 $("saveExit").onclick = async () => {
-  $("overlay").classList.add("hidden");
-  exitModal = false;
+  closeExit(false);
   stopTimer();
   await loadHome();
 };
 $("retryConnection").onclick = async () => {
+  if (busy) return;
   if (!code) {
     show("login");
     return;
   }
-  if (attempt) {
-    try {
+  busy = true;
+  try {
+    if (attempt && finishPending) {
+      try {
+        await finish();
+      } catch (error) {
+        // The server may have committed completion before its response was lost.
+        if (error.message !== "Invalid or completed attempt") throw error;
+        await loadHome();
+      }
+    } else if (attempt) {
       const a = await api.start(code, homework.quiz_id);
+      if (!a?.attempt_id || !a?.attempt_token) {
+        await loadHome();
+        return;
+      }
       attempt = { id: a.attempt_id, token: a.attempt_token };
       await openQuestion();
-    } catch (e) {
-      if (!codeRateError(e)) connectionError(e);
-    }
-  } else await loadHome();
+    } else await loadHome();
+  } catch (error) {
+    if (!codeRateError(error)) connectionError(error);
+  } finally {
+    busy = false;
+    flushTimeout();
+  }
 };
 window.addEventListener("offline", () => {
-  if (code) connectionError(Error("Offline"));
+  if (attempt && activeScreen === "question") connectionError(Error("Offline"));
+  else $("status").textContent = "You are offline. Reconnect before loading homework.";
+});
+window.addEventListener("online", () => {
+  $("status").textContent = "Connection restored.";
 });

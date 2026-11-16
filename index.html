@@ -4,6 +4,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://ohkpvuhzvshjglbqyepq.supabase.co; img-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'"
+    />
     <title>History Homework Hub</title>
     <link rel="stylesheet" href="./shared/colors.css" />
     <link rel="stylesheet" href="./pupil/styles.css" />
@@ -56,7 +60,9 @@
         </div>
         <div class="instruction">
           <span>⏱️</span>
-          <div>45 seconds for Questions 1–20; 60 seconds for Questions 21–25.</div>
+          <div id="instructionTiming">
+            Question time limits will be loaded from the homework service.
+          </div>
         </div>
         <div class="instruction">
           <span>✓</span>
@@ -96,8 +102,9 @@
           <span class="muted small">Choose one answer</span
           ><span id="timer" class="timer" aria-label="Time remaining">00:45</span>
         </div>
-        <h3 id="questionText" style="margin-top: 22px"></h3>
-        <div id="options"></div>
+        <h3 id="questionText" class="question-heading"></h3>
+        <p id="questionTiming" class="muted small"></p>
+        <div id="options" role="radiogroup" aria-labelledby="questionText"></div>
         <p id="questionError" class="error" role="alert"></p>
         <div id="feedback" class="feedback hidden" aria-live="polite"></div>
         <button id="submitAnswer" class="primary full" disabled>Submit Answer</button
@@ -114,7 +121,7 @@
       </section>
       <section id="offline" class="panel center hidden">
         <h2>Connection interrupted</h2>
-        <p>Your confirmed answers are safe. The quiz is paused until we can reconnect.</p>
+        <p id="offlineMessage"></p>
         <p id="offlineDetail" class="muted small"></p>
         <button id="retryConnection" class="primary full">Try Connecting Again</button>
       </section>
