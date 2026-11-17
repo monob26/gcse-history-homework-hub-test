@@ -59,3 +59,19 @@
 #reviewAnswers {
   margin: 12px;
 }
+
+.previous-quizzes {
+  margin-top: 24px;
+}
+.previous-quizzes > summary {
+  cursor: pointer;
+  font-weight: 700;
+  padding: 12px 0;
+}
+.previous-quizzes > summary:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+}
+.previous-quizzes .homework-group {
+  margin-top: 20px;
+}

@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 const PUPIL_V3 = SUPABASE_URL === "https://ohkpvuhzvshjglbqyepq.supabase.co";
 const linkedQuiz = PUPIL_V3 ? new URLSearchParams(location.search).get("quiz") : null;
 let pupilEpoch = 0;
+let homeFingerprint = "";
 const screens = [
   "login",
   "loading",
@@ -96,7 +97,9 @@ async function rpc(name, params) {
 const api = {
   home: (c) =>
     PUPIL_V3
-      ? rpc("quiz_session", { action: "home", payload: { code: c, quiz_id: linkedQuiz } })
+      ? linkedQuiz
+        ? rpc("quiz_session", { action: "home", payload: { code: c, quiz_id: linkedQuiz } })
+        : rpc("quiz_session", { action: "list", payload: { code: c } })
       : rpc("get_current_pupil_homework", { entered_code: c }),
   timing: (c, id) => rpc("get_pupil_quiz_timing", { entered_code: c, entered_quiz_id: id }),
   start: (c, id) =>
@@ -147,10 +150,111 @@ function codeRateError(e) {
 function stats() {
   return Number(homework?.total_questions || 25);
 }
-async function loadHome() {
+async function selectHomework(h) {
+  homework = h;
+  const timing = PUPIL_V3 ? h : await api.timing(code, h.quiz_id);
+  if (
+    !Array.isArray(timing?.time_limits) ||
+    !timing.time_limits.length ||
+    !timing.time_limits.every((t) => Number(t.seconds) > 0 && Number(t.questions) > 0)
+  )
+    throw Error("Question timing is unavailable");
+  $("instructionTiming").textContent =
+    timing.time_limits
+      .map(
+        (t) =>
+          `${t.questions} ${Number(t.questions) === 1 ? "question" : "questions"}: ${clock(t.seconds)} each`,
+      )
+      .join("; ") + ". The timer starts when each question opens.";
+  const total = Number(h.total_questions || 25),
+    threshold = Number(h.pass_mark),
+    pass = Math.round((threshold / total) * 100);
+  $("howPass").textContent = `${pass}% to pass`;
+  $("howThreshold").textContent = `You need ${threshold} out of ${total} correct.`;
+  $("howQuestions").textContent = `${total} questions`;
+  $("instructionDetails").textContent = `${total} questions in total.`;
+  $("instructionPass").textContent = `${pass}% to pass (${threshold} out of ${total}).`;
+  $("quizTitle").textContent = `Quiz: ${h.quiz_title}`;
+}
+function homeworkCard(h, wrap, ribbon) {
+  const total = Number(h.total_questions || 25),
+    threshold = Number(h.pass_mark),
+    pass = Math.round((threshold / total) * 100),
+    tries = Number(h.attempts_taken || 0),
+    best = h.highest_score;
+  const due = h.due_at ? new Date(h.due_at) : null,
+    overdue = due && !h.passed && Date.now() > due.getTime();
+  const status = h.passed
+    ? ["green", "Passed"]
+    : h.unfinished_attempt_id
+      ? ["blue", "In progress"]
+      : tries
+        ? ["amber", "Completed but not passed"]
+        : ["grey", "Not started"];
+  const div = document.createElement("div");
+  div.className = "homework-group" + (h.passed ? " complete-group" : "");
+  div.innerHTML = [
+    `<div class="ribbon">${esc(ribbon || (h.passed ? "COMPLETED HOMEWORK" : "CURRENT HOMEWORK"))}</div>`,
+    `<article class="homework-card"><h2>${esc(h.quiz_title)}</h2>`,
+    `<div class="stats"><span>▤ &nbsp;${total} questions</span>`,
+    `<span>◉ &nbsp;${threshold}/${total} (${pass}%) to pass</span></div>`,
+    due
+      ? `<div class="due">▣ &nbsp;Due by: ${esc(due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "long" }))}${overdue ? '<span class="overdue">Overdue</span>' : ""}</div>`
+      : "",
+    `<div class="card-bottom"><span class="status status-${status[0]}">${status[1]}</span></div>`,
+    `<div class="homework-extra"><span>Attempts: <b>${tries}</b></span>`,
+    `<span>Highest score: <b>${best == null ? "Not attempted" : esc(best) + "/" + total}</b></span></div>`,
+    `<div class="homework-extra"><span>WEEK ${esc(h.week_number ?? "—")} · ${esc(h.class_name)}</span>`,
+    h.topic ? `<span>${esc(h.topic)}</span>` : "",
+    `</div></article>`,
+  ].join("");
+  const btn = document.createElement("button");
+  btn.className = "btn btn-primary";
+  btn.disabled = Boolean(h.passed) && !PUPIL_V3;
+  btn.textContent =
+    h.passed && !PUPIL_V3
+      ? "Homework completed"
+      : h.unfinished_attempt_id
+        ? "Continue Homework"
+        : tries
+          ? "Try Again"
+          : "Start Homework";
+  btn.onclick = async () => {
+    try {
+      await selectHomework(h);
+    } catch (e) {
+      connectionError(e);
+      return;
+    }
+    if (h.unfinished_attempt_id) {
+      $("resumeProgress").textContent =
+        "Your answers have been saved. Continue from where you stopped.";
+      show("resume");
+    } else {
+      $("instructionTitle").textContent = h.quiz_title;
+      show("instructions");
+    }
+  };
+  div.querySelector(".card-bottom").append(btn);
+  wrap.append(div);
+  if (PUPIL_V3 && h.first_passed_at) {
+    const summary = document.createElement("p");
+    summary.textContent =
+      "First passed: " +
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/London",
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(h.first_passed_at)) +
+      " · " +
+      h.deadline_status;
+    div.append(summary);
+  }
+}
+async function loadHome({ quiet = false } = {}) {
   timeoutPending = false;
   stopTimer();
-  show("loading");
+  if (!quiet) show("loading");
   try {
     const h = await api.home(code);
     if (!h?.valid_code) {
@@ -159,107 +263,39 @@ async function loadHome() {
       $("loginError").textContent = "Code not recognised. Check your code and try again.";
       return;
     }
-    homework = h;
+    const fingerprint = JSON.stringify(h);
+    if (quiet && fingerprint === homeFingerprint) return;
+    homeFingerprint = fingerprint;
+    const previousOpen = Boolean($("homeContent").querySelector("details[open]"));
     attempt = null;
     current = null;
     $("yearBadge").textContent = "Year " + h.year_group;
     const wrap = $("homeContent");
     wrap.replaceChildren();
-    if (!h.quiz_id) {
-      wrap.innerHTML =
-        "<h3>You're all caught up!</h3><p>There is no History homework available at the moment.</p>";
+    const quizzes =
+      PUPIL_V3 && !linkedQuiz && Array.isArray(h.quizzes) ? h.quizzes : h.quiz_id ? [h] : [];
+    homework = quizzes[0] || null;
+    if (!quizzes.length) {
       if (linkedQuiz)
         wrap.textContent =
           "This quiz is not available for your class yet. Check the ClassCharts link and release time.";
+      else
+        wrap.innerHTML =
+          "<h3>You're all caught up!</h3><p>There is no History homework available at the moment.</p>";
       show("home");
       return;
     }
-    const timing = PUPIL_V3 ? h : await api.timing(code, h.quiz_id);
-    if (
-      !Array.isArray(timing?.time_limits) ||
-      !timing.time_limits.length ||
-      !timing.time_limits.every((t) => Number(t.seconds) > 0 && Number(t.questions) > 0)
-    )
-      throw Error("Question timing is unavailable");
-    $("instructionTiming").textContent =
-      timing.time_limits
-        .map(
-          (t) =>
-            `${t.questions} ${Number(t.questions) === 1 ? "question" : "questions"}: ${clock(t.seconds)} each`,
-        )
-        .join("; ") + ". The timer starts when each question opens.";
-    const total = stats(),
-      threshold = Number(h.pass_mark),
-      pass = Math.round((threshold / total) * 100),
-      tries = Number(h.attempts_taken || 0),
-      best = h.highest_score;
-    const due = h.due_at ? new Date(h.due_at) : null,
-      overdue = due && !h.passed && Date.now() > due.getTime();
-    $("howPass").textContent = `${pass}% to pass`;
-    $("howThreshold").textContent = `You need ${threshold} out of ${total} correct.`;
-    $("howQuestions").textContent = `${total} questions`;
-    $("instructionDetails").textContent = `${total} questions in total.`;
-    $("instructionPass").textContent = `${pass}% to pass (${threshold} out of ${total}).`;
-    $("quizTitle").textContent = `Quiz: ${h.quiz_title}`;
-    const status = h.passed
-      ? ["green", "Passed"]
-      : h.unfinished_attempt_id
-        ? ["blue", "In progress"]
-        : tries
-          ? ["amber", "Completed but not passed"]
-          : ["grey", "Not started"];
-    const div = document.createElement("div");
-    div.className = "homework-group" + (h.passed ? " complete-group" : "");
-    div.innerHTML = [
-      `<div class="ribbon">${h.passed ? "COMPLETED HOMEWORK" : "CURRENT HOMEWORK"}</div>`,
-      `<article class="homework-card"><h2>${esc(h.quiz_title)}</h2>`,
-      `<div class="stats"><span>▤ &nbsp;${total} questions</span>`,
-      `<span>◉ &nbsp;${threshold}/${total} (${pass}%) to pass</span></div>`,
-      due
-        ? `<div class="due">▣ &nbsp;Due by: ${esc(due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "long" }))}${overdue ? '<span class="overdue">Overdue</span>' : ""}</div>`
-        : "",
-      `<div class="card-bottom"><span class="status status-${status[0]}">${status[1]}</span></div>`,
-      `<div class="homework-extra"><span>Attempts: <b>${tries}</b></span>`,
-      `<span>Highest score: <b>${best == null ? "Not attempted" : esc(best) + "/" + total}</b></span></div>`,
-      `<div class="homework-extra"><span>WEEK ${esc(h.week_number ?? "—")} · ${esc(h.class_name)}</span>`,
-      h.topic ? `<span>${esc(h.topic)}</span>` : "",
-      `</div></article>`,
-    ].join("");
-    const btn = document.createElement("button");
-    btn.className = "btn btn-primary";
-    btn.disabled = Boolean(h.passed) && !PUPIL_V3;
-    btn.textContent =
-      h.passed && !PUPIL_V3
-        ? "Homework completed"
-        : h.unfinished_attempt_id
-          ? "Continue Homework"
-          : tries
-            ? "Try Again"
-            : "Start Homework";
-    btn.onclick = () => {
-      if (h.unfinished_attempt_id) {
-        $("resumeProgress").textContent =
-          "Your answers have been saved. Continue from where you stopped.";
-        show("resume");
-      } else {
-        $("instructionTitle").textContent = h.quiz_title;
-        show("instructions");
-      }
-    };
-    div.querySelector(".card-bottom").append(btn);
-    wrap.append(div);
-    if (PUPIL_V3 && h.first_passed_at) {
-      const summary = document.createElement("p");
-      summary.textContent =
-        "First passed: " +
-        new Intl.DateTimeFormat("en-GB", {
-          timeZone: "Europe/London",
-          dateStyle: "medium",
-          timeStyle: "short",
-        }).format(new Date(h.first_passed_at)) +
-        " · " +
-        h.deadline_status;
-      wrap.append(summary);
+    await selectHomework(quizzes[0]);
+    homeworkCard(quizzes[0], wrap, PUPIL_V3 && !linkedQuiz ? "CURRENT HOMEWORK" : null);
+    if (quizzes.length > 1) {
+      const previous = document.createElement("details"),
+        summary = document.createElement("summary");
+      previous.className = "previous-quizzes";
+      previous.open = previousOpen;
+      summary.textContent = "Previous Quizzes (" + (quizzes.length - 1) + ")";
+      previous.append(summary);
+      for (const quiz of quizzes.slice(1)) homeworkCard(quiz, previous, "PREVIOUS QUIZ");
+      wrap.append(previous);
     }
     show("home");
   } catch (e) {
@@ -295,10 +331,12 @@ $("changeCode").onclick = () => {
   homework = null;
   attempt = null;
   $("code").value = "";
+  homeFingerprint = "";
+  $("homeContent").replaceChildren();
   show("login");
 };
-$("backFromInstructions").onclick = () => show("home");
-$("resumeBack").onclick = () => show("home");
+$("backFromInstructions").onclick = () => loadHome();
+$("resumeBack").onclick = () => loadHome();
 async function start() {
   if (busy) return;
   busy = true;
@@ -653,3 +691,11 @@ window.addEventListener("offline", () => {
 window.addEventListener("online", () => {
   $("status").textContent = "Connection restored.";
 });
+
+// Refresh only the idle permanent homepage; never interrupt an attempt or reveal future metadata.
+function refreshHomeworkList() {
+  if (PUPIL_V3 && !linkedQuiz && code && activeScreen === "home" && !busy && !document.hidden)
+    loadHome({ quiet: true });
+}
+setInterval(refreshHomeworkList, 60000);
+document.addEventListener("visibilitychange", refreshHomeworkList);
