@@ -995,3 +995,10 @@ button:disabled:hover {
 .option:disabled {
   opacity: 1;
 }
+
+/* Preserve the existing page-level heading with the approved brand appearance. */
+.brand-title {
+  font: inherit;
+  letter-spacing: inherit;
+  margin: 0;
+}

@@ -189,7 +189,10 @@ async function loadHome() {
         : "",
       `<div class="card-bottom"><span class="status status-${status[0]}">${status[1]}</span></div>`,
       `<div class="homework-extra"><span>Attempts: <b>${tries}</b></span>`,
-      `<span>Highest score: <b>${best == null ? "Not attempted" : esc(best) + "/" + total}</b></span></div></article>`,
+      `<span>Highest score: <b>${best == null ? "Not attempted" : esc(best) + "/" + total}</b></span></div>`,
+      `<div class="homework-extra"><span>WEEK ${esc(h.week_number ?? "—")} · ${esc(h.class_name)}</span>`,
+      h.topic ? `<span>${esc(h.topic)}</span>` : "",
+      `</div></article>`,
     ].join("");
     const btn = document.createElement("button");
     btn.className = "btn btn-primary";
