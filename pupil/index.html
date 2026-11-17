@@ -12,127 +12,199 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header>
-      <div class="book" aria-hidden="true">📖</div>
-      <h1>History Homework Hub</h1>
-      <p>GCSE History · Knowledge Practice</p>
-    </header>
-    <main>
-      <section id="login" class="panel center">
-        <h2>Welcome!</h2>
-        <p>Enter your pupil code to see your History homework.</p>
-        <form id="loginForm">
-          <label for="code">Pupil code</label
-          ><input
-            id="code"
-            maxlength="20"
-            autocomplete="off"
-            autocapitalize="characters"
-            placeholder="Enter your pupil code"
-            required
-          />
-          <p id="loginError" class="error" role="alert"></p>
-          <button class="primary full" type="submit">Continue</button>
-        </form>
-        <p class="muted small">Forgotten your code? Ask your History teacher.</p>
-      </section>
-      <section id="loading" class="panel center hidden" role="status">
-        <h2>Loading your homework…</h2>
-        <p class="muted">Please wait.</p>
-      </section>
-      <section id="home" class="panel hidden">
-        <div class="space">
-          <h2>Your Homework</h2>
-          <span id="yearBadge" class="pill"></span>
+    <div class="app-shell">
+      <header class="site-header">
+        <div class="brand">
+          <svg class="hourglass" viewBox="0 0 36 44" aria-hidden="true">
+            <path
+              d="M5 3h26M5 41h26M8 5v7l9 10-9 10v7m20-34v7l-9 10 9 10v7"
+              stroke="#ffd37b"
+              stroke-width="3"
+              fill="none"
+              stroke-linecap="round"
+            />
+            <path d="M12 13h12l-6 7zm0 21h12l-6-8z" fill="#ffd37b" /></svg
+          ><strong>GCSE History<br />Homework Hub</strong>
         </div>
-        <div id="homeContent"></div>
-        <div class="actions">
-          <button class="secondary" id="changeCode">Use another code</button>
-        </div>
-      </section>
-      <section id="instructions" class="panel hidden">
-        <h2>Before You Begin</h2>
-        <h3 id="instructionTitle"></h3>
-        <div class="instruction">
-          <span>📝</span>
-          <div id="instructionDetails">25 questions · 20 correct answers needed to pass (80%).</div>
-        </div>
-        <div class="instruction">
-          <span>⏱️</span>
-          <div id="instructionTiming">
-            Question time limits will be loaded from the homework service.
+        <div class="castle-strip" aria-hidden="true"></div>
+      </header>
+      <main>
+        <section id="login" class="screen entry-bg">
+          <form id="loginForm" class="login-card surface">
+            <div class="symbol" aria-hidden="true">▦</div>
+            <h2>Enter your homework code</h2>
+            <label class="sr-only" for="code">Your 12-character pupil code</label>
+            <input
+              id="code"
+              maxlength="20"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+              placeholder="Enter your 12-character code"
+              aria-describedby="codeHelp"
+              required
+            />
+            <span id="codeHelp" class="sr-only"
+              >Forgotten your code? Ask your History teacher.</span
+            >
+            <p id="loginError" class="error" role="alert"></p>
+            <button class="btn btn-primary big" type="submit">
+              Continue <span aria-hidden="true">→</span>
+            </button>
+          </form>
+        </section>
+        <section id="loading" class="screen entry-bg hidden" role="status">
+          <div class="login-card surface">
+            <h2>Loading your homework…</h2>
+            <p class="muted">Please wait.</p>
           </div>
-        </div>
-        <div class="instruction">
-          <span>✓</span>
-          <div>
-            After every question, you'll see the correct answer and a short historical explanation.
+        </section>
+        <section id="home" class="screen hidden">
+          <div class="welcome">
+            <h2>Welcome to your<br />History Homework Hub!</h2>
+            <p><span id="yearBadge"></span><b>│</b>GCSE History</p>
           </div>
-        </div>
-        <div class="instruction">
-          <span>💾</span>
-          <div>Your progress is saved after each question. You can leave and return later.</div>
-        </div>
-        <p class="muted small">
-          The timer starts when the question opens. Questions and answer options may appear in a
-          different order on each new attempt.
-        </p>
-        <div class="actions">
-          <button id="backFromInstructions" class="secondary">Back</button
-          ><button id="startQuiz" class="primary">Start Quiz</button>
-        </div>
-      </section>
-      <section id="resume" class="panel hidden center">
-        <h2>Welcome back!</h2>
-        <p>You have an unfinished History quiz.</p>
-        <p id="resumeProgress" class="muted"></p>
-        <button id="resumeQuiz" class="primary full">Continue Quiz</button>
-        <div class="actions">
-          <button id="resumeBack" class="secondary full">Return to Homework</button>
-        </div>
-      </section>
-      <section id="question" class="panel hidden">
-        <div class="space">
-          <strong id="qNumber">Question 1 of 25</strong
-          ><button class="secondary" id="exitQuiz" type="button">Exit Quiz</button>
-        </div>
-        <div class="progress" aria-label="Quiz progress"><div id="progressBar"></div></div>
-        <div class="space">
-          <span class="muted small">Choose one answer</span
-          ><span id="timer" class="timer" aria-label="Time remaining">00:45</span>
-        </div>
-        <h3 id="questionText" class="question-heading"></h3>
-        <p id="questionTiming" class="muted small"></p>
-        <div id="options" role="radiogroup" aria-labelledby="questionText"></div>
-        <p id="questionError" class="error" role="alert"></p>
-        <div id="feedback" class="feedback hidden" aria-live="polite"></div>
-        <button id="submitAnswer" class="primary full" disabled>Submit Answer</button
-        ><button id="nextQuestion" class="primary full hidden">Next Question</button>
-      </section>
-      <section id="result" class="panel center hidden">
-        <div id="resultIcon" class="check"></div>
-        <h2 id="resultHeading"></h2>
-        <div id="resultScore" class="bigscore"></div>
-        <h3 id="resultPercent"></h3>
-        <p id="resultAttempts"></p>
-        <p id="resultMessage"></p>
-        <button id="resultAction" class="primary full"></button>
-      </section>
-      <section id="offline" class="panel center hidden">
-        <h2>Connection interrupted</h2>
-        <p id="offlineMessage"></p>
-        <p id="offlineDetail" class="muted small"></p>
-        <button id="retryConnection" class="primary full">Try Connecting Again</button>
-      </section>
-      <p id="status" class="muted small" role="status" aria-live="polite"></p>
-    </main>
+          <div class="dashboard-layout">
+            <div id="homeContent" class="homework-column"></div>
+            <aside class="how">
+              <h2><span aria-hidden="true">▤ &nbsp;</span>How it works</h2>
+              <div class="how-body">
+                <div class="how-item purple">
+                  <span class="how-icon" aria-hidden="true">◎</span>
+                  <div>
+                    <b id="howPass">80% to pass</b
+                    ><small id="howThreshold">You need 20 out of 25 correct.</small>
+                  </div>
+                </div>
+                <div class="how-item blue">
+                  <span class="how-icon" aria-hidden="true">▤</span>
+                  <div>
+                    <b id="howQuestions">25 questions</b
+                    ><small>A mix of recall and understanding.</small>
+                  </div>
+                </div>
+                <div class="how-item gold">
+                  <span class="how-icon" aria-hidden="true">⟳</span>
+                  <div>
+                    <b>You can retry</b
+                    ><small>If you don't pass, you can try again until you do.</small>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+          <div class="existing-actions">
+            <button class="btn btn-soft" id="changeCode">Use another code</button>
+          </div>
+        </section>
+        <section id="instructions" class="screen entry-bg hidden">
+          <div class="instruction-card surface">
+            <div class="symbol" aria-hidden="true">▤</div>
+            <h2>Before you start...</h2>
+            <h3 id="instructionTitle" class="sr-only"></h3>
+            <ul class="tick-list">
+              <li id="instructionDetails">25 questions in total.</li>
+              <li>A mix of knowledge and understanding.</li>
+              <li id="instructionPass">80% to pass (20 out of 25).</li>
+              <li>You can retry until you pass.</li>
+            </ul>
+            <p id="instructionTiming" class="timing-help">
+              Question time limits will be loaded from the homework service.
+            </p>
+            <p class="sr-only">
+              After every question, you'll see the correct answer and a short historical
+              explanation. Your progress is saved after each question. You can leave and return
+              later. Questions and answer options may appear in a different order on each new
+              attempt.
+            </p>
+            <button id="startQuiz" class="btn btn-primary big">
+              Start quiz <span aria-hidden="true">→</span>
+            </button>
+            <button id="backFromInstructions" class="btn btn-soft">Back</button>
+          </div>
+        </section>
+        <section id="resume" class="screen entry-bg hidden">
+          <div class="login-card surface">
+            <h2>Welcome back!</h2>
+            <p>You have an unfinished History quiz.</p>
+            <p id="resumeProgress" class="muted"></p>
+            <button id="resumeQuiz" class="btn btn-primary big">Continue Quiz</button
+            ><button id="resumeBack" class="btn btn-soft">Return to Homework</button>
+          </div>
+        </section>
+        <section id="question" class="screen quiz-bg hidden">
+          <div class="quiz-meta">
+            <strong id="quizTitle"></strong><strong id="qNumber">Question 1 of 25</strong>
+          </div>
+          <div class="progressline">
+            <div class="track" aria-label="Quiz progress">
+              <div id="progressBar" class="fill"></div>
+            </div>
+            <span class="timer"
+              ><span aria-hidden="true">◴ &nbsp;</span
+              ><span id="timer" aria-label="Time remaining">00:45</span></span
+            >
+          </div>
+          <div class="question-card surface">
+            <h3 id="questionText"></h3>
+            <p id="questionTiming" class="sr-only"></p>
+            <div
+              id="options"
+              class="options"
+              role="radiogroup"
+              aria-labelledby="questionText"
+            ></div>
+            <p id="questionError" class="error" role="alert"></p>
+            <div id="feedback" class="feedback inline-feedback hidden" aria-live="polite"></div>
+            <div class="question-actions">
+              <button id="submitAnswer" class="btn btn-primary" disabled>
+                Check answer <span aria-hidden="true">→</span></button
+              ><button id="nextQuestion" class="btn btn-primary hidden">Next question</button>
+            </div>
+          </div>
+          <div class="quiz-exit">
+            <button class="btn btn-soft" id="exitQuiz" type="button">Exit Quiz</button>
+          </div>
+        </section>
+        <section id="result" class="screen result-bg hidden">
+          <div class="results-grid">
+            <div id="resultHero" class="result-hero">
+              <span id="resultIcon" class="hero-icon" aria-hidden="true"></span>
+              <h2 id="resultHeading"></h2>
+              <span id="resultCheck" class="small-check" aria-hidden="true">✓</span>
+            </div>
+            <div class="score-box">
+              <small>Your score</small><strong id="resultScore"></strong
+              ><span id="resultPercent" class="percent"></span>
+            </div>
+            <div class="result-notes">
+              <p id="resultThreshold"></p>
+              <p id="resultAttempts"></p>
+              <p id="resultMessage"></p>
+            </div>
+            <div class="result-actions">
+              <button id="resultAction" class="btn btn-primary"></button>
+            </div>
+          </div>
+        </section>
+        <section id="offline" class="screen entry-bg hidden">
+          <div class="login-card surface">
+            <h2>Connection interrupted</h2>
+            <p id="offlineMessage"></p>
+            <p id="offlineDetail" class="muted small"></p>
+            <button id="retryConnection" class="btn btn-primary big">Try Connecting Again</button>
+          </div>
+        </section>
+        <p id="status" class="status-message" role="status" aria-live="polite"></p>
+      </main>
+    </div>
     <div id="overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="exitTitle">
-      <div class="panel">
+      <div class="surface modal-card">
         <h2 id="exitTitle">Leave your quiz?</h2>
         <p id="exitProgress">Your progress will be saved.</p>
         <div class="actions">
-          <button id="stay" class="secondary">Continue Quiz</button
-          ><button id="saveExit" class="primary">Save &amp; Exit</button>
+          <button id="stay" class="btn btn-soft">Continue Quiz</button
+          ><button id="saveExit" class="btn btn-primary">Save &amp; Exit</button>
         </div>
       </div>
     </div>

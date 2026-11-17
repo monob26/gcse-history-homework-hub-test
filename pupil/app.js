@@ -158,36 +158,46 @@ async function loadHome() {
         )
         .join("; ") + ". The timer starts when each question opens.";
     const total = stats(),
-      pass = Number(h.pass_mark || 80),
-      threshold = Math.ceil((total * pass) / 100),
+      threshold = Number(h.pass_mark),
+      pass = Math.round((threshold / total) * 100),
       tries = Number(h.attempts_taken || 0),
       best = h.highest_score;
     const due = h.due_at ? new Date(h.due_at) : null,
       overdue = due && !h.passed && Date.now() > due.getTime();
+    $("howPass").textContent = `${pass}% to pass`;
+    $("howThreshold").textContent = `You need ${threshold} out of ${total} correct.`;
+    $("howQuestions").textContent = `${total} questions`;
+    $("instructionDetails").textContent = `${total} questions in total.`;
+    $("instructionPass").textContent = `${pass}% to pass (${threshold} out of ${total}).`;
+    $("quizTitle").textContent = `Quiz: ${h.quiz_title}`;
+    const status = h.passed
+      ? ["green", "Passed"]
+      : h.unfinished_attempt_id
+        ? ["blue", "In progress"]
+        : tries
+          ? ["amber", "Completed but not passed"]
+          : ["grey", "Not started"];
     const div = document.createElement("div");
+    div.className = "homework-group" + (h.passed ? " complete-group" : "");
     div.innerHTML = [
-      `<p class="muted small">WEEK ${esc(h.week_number ?? "—")} · ${esc(h.class_name)}</p>`,
-      `<h3>${esc(h.quiz_title)}</h3><p class="muted">${esc(h.topic || "")}</p>`,
-      `<div class="meta"><span class="pill">${total} questions</span>`,
-      `<span class="pill">${pass}% to pass</span>`,
-      overdue ? '<span class="pill overdue">Overdue</span>' : "",
-      h.passed ? '<span class="pill complete">Completed</span>' : "",
-      "</div>",
+      `<div class="ribbon">${h.passed ? "COMPLETED HOMEWORK" : "CURRENT HOMEWORK"}</div>`,
+      `<article class="homework-card"><h2>${esc(h.quiz_title)}</h2>`,
+      `<div class="stats"><span>▤ &nbsp;${total} questions</span>`,
+      `<span>◉ &nbsp;${threshold}/${total} (${pass}%) to pass</span></div>`,
       due
-        ? '<p class="muted small">Due: ' +
-          esc(due.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })) +
-          "</p>"
+        ? `<div class="due">▣ &nbsp;Due by: ${esc(due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "long" }))}${overdue ? '<span class="overdue">Overdue</span>' : ""}</div>`
         : "",
-      `<div class="stats"><span>Attempts: <b>${tries}</b></span>`,
-      `<span>Highest score: <b>${best == null ? "Not attempted" : esc(best) + "/" + total}</b></span></div>`,
+      `<div class="card-bottom"><span class="status status-${status[0]}">${status[1]}</span></div>`,
+      `<div class="homework-extra"><span>Attempts: <b>${tries}</b></span>`,
+      `<span>Highest score: <b>${best == null ? "Not attempted" : esc(best) + "/" + total}</b></span></div></article>`,
     ].join("");
     const btn = document.createElement("button");
-    btn.className = "primary full";
+    btn.className = "btn btn-primary";
     btn.disabled = Boolean(h.passed);
     btn.textContent = h.passed
       ? "Homework completed"
       : h.unfinished_attempt_id
-        ? "Continue Quiz"
+        ? "Continue Homework"
         : tries
           ? "Try Again"
           : "Start Homework";
@@ -198,12 +208,10 @@ async function loadHome() {
         show("resume");
       } else {
         $("instructionTitle").textContent = h.quiz_title;
-        $("instructionDetails").textContent =
-          `${total} questions · ${threshold} correct answers needed to pass (${pass}%).`;
         show("instructions");
       }
     };
-    div.append(btn);
+    div.querySelector(".card-bottom").append(btn);
     wrap.append(div);
     show("home");
   } catch (e) {
@@ -272,7 +280,7 @@ async function openQuestion() {
   $("questionText").textContent = current.text;
   $("questionTiming").textContent = `Time allowed for this question: ${clock(current.limit)}.`;
   $("questionError").textContent = "";
-  $("feedback").className = "feedback hidden";
+  $("feedback").className = "feedback inline-feedback hidden";
   $("submitAnswer").classList.remove("hidden");
   $("submitAnswer").disabled = true;
   $("nextQuestion").classList.add("hidden");
@@ -357,11 +365,12 @@ async function submit(timedOut) {
     lastFeedback = r;
     const correctIndex = Number(r.correct_option),
       correctText = current.options[correctIndex] ?? "Unavailable";
-    $("feedback").className = "feedback " + (r.answer_correct ? "correct" : "wrong");
+    $("feedback").className =
+      "feedback inline-feedback " + (r.answer_correct ? "correct" : "wrong");
     $("feedback").innerHTML = [
-      `<strong>${timedOut ? "Time is up" : r.answer_correct ? "Correct!" : "Not quite"}</strong>`,
+      `<span class="feedback-tick" aria-hidden="true">${r.answer_correct ? "✓" : "×"}</span><div class="feedback-copy"><strong>${timedOut ? "Time is up" : r.answer_correct ? "Correct!" : "Not quite"}</strong>`,
       `<p>Correct answer: ${esc(correctText)}</p>`,
-      `<p>${esc(r.feedback || "Review this fact before moving on.")}</p>`,
+      `<p>${esc(r.feedback || "Review this fact before moving on.")}</p></div>`,
     ].join("");
     $("questionError").textContent = "";
     $("submitAnswer").classList.add("hidden");
@@ -398,16 +407,23 @@ async function finish() {
     passed = Boolean(r.passed);
   if (!Number.isFinite(score) || !Number.isFinite(total)) throw Error("Invalid result");
   finishPending = false;
-  $("resultIcon").textContent = passed ? "🎉" : "📚";
-  $("resultIcon").className = "check " + (passed ? "confetti" : "");
-  $("resultHeading").textContent = passed ? "Homework Complete!" : "Not quite there yet";
-  $("resultScore").textContent = score + "/" + total;
+  $("resultHero").className = "result-hero " + (passed ? "success" : "fail");
+  $("resultCheck").hidden = !passed;
+  $("resultIcon").textContent = passed ? "🏆" : "✖";
+  $("resultHeading").textContent = passed ? "You passed!" : "Not passed yet.";
+  $("resultScore").textContent = score + " / " + total;
+  $("resultPercent").className = "percent " + (passed ? "success-percent" : "fail-percent");
+  const threshold = Number(homework.pass_mark),
+    pass = Math.round((threshold / total) * 100);
+  $("resultThreshold").textContent = passed
+    ? `✓ You met the pass mark (${pass}%).`
+    : `✓ You need ${pass}% to pass (${threshold} out of ${total}).`;
   $("resultPercent").textContent = Math.round((score / total) * 100) + "%";
-  $("resultAttempts").textContent = "Result saved";
+  $("resultAttempts").textContent = passed ? "✓ Well done!" : "✓ Result saved.";
   $("resultMessage").textContent = passed
     ? "Your result has been saved for your teacher."
     : "You can try again to reach the pass mark.";
-  $("resultAction").textContent = passed ? "Return to Homework" : "Try Again";
+  $("resultAction").textContent = passed ? "⌂ Back to homework" : "⟳ Retry quiz →";
   $("resultAction").onclick = async () => {
     if (passed) await loadHome();
     else {
