@@ -851,8 +851,9 @@ body {
   }
 }
 
-/* Quiz screens only: calmer pale-blue watercolour, with torn-paper lower edge. */
-.quiz-bg {
+/* Dashboard and quiz share the approved watercolour and torn-paper lower edge. */
+.quiz-bg,
+#home {
   background-image: url("./assets/approved-quiz.png");
   background-position: center bottom;
   background-size: cover;
