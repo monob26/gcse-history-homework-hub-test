@@ -11,6 +11,7 @@
     <title>History Homework Hub</title>
     <link rel="stylesheet" href="./shared/colors.css" />
     <link rel="stylesheet" href="./pupil/styles.css" />
+    <link rel="stylesheet" href="./pupil/quiz-types.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -186,8 +187,16 @@
             </div>
             <div class="result-actions">
               <button id="resultAction" class="btn btn-primary"></button>
+              <button id="reviewAnswers" class="btn btn-soft hidden">Review my answers</button>
             </div>
           </div>
+        </section>
+        <section id="review" class="screen instructions-bg hidden">
+          <h2>Your answer review</h2>
+          <p id="reviewError" role="status"></p>
+          <button id="reviewBack" class="btn btn-soft">Back to result</button>
+          <button id="reviewRetry" class="btn btn-primary">Retry quiz</button>
+          <div id="reviewContent"></div>
         </section>
         <section id="offline" class="screen entry-bg hidden">
           <div class="login-card surface">
@@ -211,6 +220,7 @@
       </div>
     </div>
     <script src="./shared/config.js"></script>
+    <script src="./pupil/quiz-types.js"></script>
     <script src="./pupil/app.js"></script>
   </body>
 </html>

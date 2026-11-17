@@ -1,6 +1,9 @@
 "use strict";
 const { supabaseUrl: SUPABASE_URL, publishableKey: SUPABASE_KEY } = window.HISTORY_CONFIG;
 const $ = (id) => document.getElementById(id);
+const PUPIL_V3 = SUPABASE_URL === "https://ohkpvuhzvshjglbqyepq.supabase.co";
+const linkedQuiz = PUPIL_V3 ? new URLSearchParams(location.search).get("quiz") : null;
+let pupilEpoch = 0;
 const screens = [
   "login",
   "loading",
@@ -10,6 +13,7 @@ const screens = [
   "question",
   "result",
   "offline",
+  "review",
 ];
 let code = "",
   homework = null,
@@ -57,6 +61,7 @@ function unwrap(v) {
   return Array.isArray(v) ? v[0] : v;
 }
 async function rpc(name, params) {
+  const requestEpoch = pupilEpoch;
   const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: "POST",
     headers: {
@@ -69,6 +74,11 @@ async function rpc(name, params) {
     body: JSON.stringify(params),
   });
   const body = await response.text();
+  if (requestEpoch !== pupilEpoch) {
+    const e = new Error("Code session changed");
+    e.sessionChanged = true;
+    throw e;
+  }
   let data;
   try {
     data = body ? JSON.parse(body) : null;
@@ -84,21 +94,39 @@ async function rpc(name, params) {
   return unwrap(data);
 }
 const api = {
-  home: (c) => rpc("get_current_pupil_homework", { entered_code: c }),
+  home: (c) =>
+    PUPIL_V3
+      ? rpc("quiz_session", { action: "home", payload: { code: c, quiz_id: linkedQuiz } })
+      : rpc("get_current_pupil_homework", { entered_code: c }),
   timing: (c, id) => rpc("get_pupil_quiz_timing", { entered_code: c, entered_quiz_id: id }),
-  start: (c, id) => rpc("start_pupil_quiz", { entered_code: c, entered_quiz_id: id }),
+  start: (c, id) =>
+    PUPIL_V3
+      ? rpc("quiz_session", { action: "start", payload: { code: c, quiz_id: id } })
+      : rpc("start_pupil_quiz", { entered_code: c, entered_quiz_id: id }),
   open: (a) =>
-    rpc("open_pupil_question", { entered_attempt_id: a.id, entered_attempt_token: a.token }),
+    PUPIL_V3
+      ? rpc("quiz_session", { action: "open", payload: { attempt_id: a.id, token: a.token } })
+      : rpc("open_pupil_question", { entered_attempt_id: a.id, entered_attempt_token: a.token }),
   answer: (a, n) =>
-    rpc("submit_pupil_answer", {
-      entered_attempt_id: a.id,
-      entered_attempt_token: a.token,
-      entered_answer: n,
-    }),
+    PUPIL_V3
+      ? rpc("quiz_session", {
+          action: "answer",
+          payload: { attempt_id: a.id, token: a.token, answer: n },
+        })
+      : rpc("submit_pupil_answer", {
+          entered_attempt_id: a.id,
+          entered_attempt_token: a.token,
+          entered_answer: n,
+        }),
   finish: (a) =>
-    rpc("complete_pupil_quiz", { entered_attempt_id: a.id, entered_attempt_token: a.token }),
+    PUPIL_V3
+      ? rpc("quiz_session", { action: "finish", payload: { attempt_id: a.id, token: a.token } })
+      : rpc("complete_pupil_quiz", { entered_attempt_id: a.id, entered_attempt_token: a.token }),
+  review: (a) =>
+    rpc("quiz_session", { action: "review", payload: { attempt_id: a.id, token: a.token } }),
 };
 function connectionError(err) {
+  if (err.sessionChanged) return;
   $("offlineMessage").textContent = attempt
     ? "Your confirmed answers are saved. The server timer continues while you are disconnected."
     : "Homework could not be loaded. Please reconnect and try again.";
@@ -140,10 +168,13 @@ async function loadHome() {
     if (!h.quiz_id) {
       wrap.innerHTML =
         "<h3>You're all caught up!</h3><p>There is no History homework available at the moment.</p>";
+      if (linkedQuiz)
+        wrap.textContent =
+          "This quiz is not available for your class yet. Check the ClassCharts link and release time.";
       show("home");
       return;
     }
-    const timing = await api.timing(code, h.quiz_id);
+    const timing = PUPIL_V3 ? h : await api.timing(code, h.quiz_id);
     if (
       !Array.isArray(timing?.time_limits) ||
       !timing.time_limits.length ||
@@ -196,14 +227,15 @@ async function loadHome() {
     ].join("");
     const btn = document.createElement("button");
     btn.className = "btn btn-primary";
-    btn.disabled = Boolean(h.passed);
-    btn.textContent = h.passed
-      ? "Homework completed"
-      : h.unfinished_attempt_id
-        ? "Continue Homework"
-        : tries
-          ? "Try Again"
-          : "Start Homework";
+    btn.disabled = Boolean(h.passed) && !PUPIL_V3;
+    btn.textContent =
+      h.passed && !PUPIL_V3
+        ? "Homework completed"
+        : h.unfinished_attempt_id
+          ? "Continue Homework"
+          : tries
+            ? "Try Again"
+            : "Start Homework";
     btn.onclick = () => {
       if (h.unfinished_attempt_id) {
         $("resumeProgress").textContent =
@@ -216,18 +248,48 @@ async function loadHome() {
     };
     div.querySelector(".card-bottom").append(btn);
     wrap.append(div);
+    if (PUPIL_V3 && h.first_passed_at) {
+      const summary = document.createElement("p");
+      summary.textContent =
+        "First passed: " +
+        new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/London",
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(new Date(h.first_passed_at)) +
+        " · " +
+        h.deadline_status;
+      wrap.append(summary);
+    }
     show("home");
   } catch (e) {
+    if (PUPIL_V3 && e.message === "invalid_quiz_link") {
+      homework = null;
+      attempt = null;
+      current = null;
+      $("homeContent").textContent =
+        "This ClassCharts link is not valid. Ask your teacher for the correct quiz link.";
+      show("home");
+      return;
+    }
     if (!codeRateError(e)) connectionError(e);
   }
 }
 $("loginForm").onsubmit = async (e) => {
   e.preventDefault();
+  pupilEpoch++;
   code = $("code").value.trim().toUpperCase();
   $("loginError").textContent = "";
   if (code) await loadHome();
 };
 $("changeCode").onclick = () => {
+  pupilEpoch++;
+  $("reviewContent").replaceChildren();
+  window.PUPIL_TYPES.clear();
+  $("feedback").replaceChildren();
+  current = null;
+  selected = null;
+  lastFeedback = null;
   stopTimer();
   code = "";
   homework = null;
@@ -267,13 +329,14 @@ async function openQuestion() {
     if (error.message === "All questions answered; complete the quiz") return finish();
     throw error;
   }
-  if (!q || !Array.isArray(q.answer_options) || q.answer_options.length !== 4)
+  if (!q || (!q.payload && (!Array.isArray(q.answer_options) || q.answer_options.length !== 4)))
     throw Error("Invalid question response");
   current = {
     number: Number(q.question_number),
     text: q.question_text,
     options: q.answer_options,
     limit: Number(q.time_allowed_seconds),
+    payload: q.payload || null,
   };
   selected = null;
   answered = false;
@@ -289,40 +352,54 @@ async function openQuestion() {
   $("nextQuestion").classList.add("hidden");
   const options = $("options");
   options.replaceChildren();
-  current.options.forEach((value, i) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "option";
-    b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", "false");
-    b.tabIndex = i === 0 ? 0 : -1;
-    b.innerHTML = '<span class="circle" aria-hidden="true"></span><span>' + esc(value) + "</span>";
-    b.onclick = () => {
-      if (answered || busy) return;
-      selected = i;
-      options.querySelectorAll("button").forEach((el) => {
-        el.classList.remove("selected");
-        el.setAttribute("aria-checked", "false");
-        el.tabIndex = -1;
-      });
-      b.classList.add("selected");
-      b.setAttribute("aria-checked", "true");
-      b.tabIndex = 0;
-      $("submitAnswer").disabled = false;
-    };
-    b.onkeydown = (event) => {
-      const directions = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
-      if (answered || busy || !(event.key in directions)) return;
-      event.preventDefault();
-      const target =
-        options.children[
-          (i + directions[event.key] + current.options.length) % current.options.length
-        ];
-      target.focus();
-      target.click();
-    };
-    options.append(b);
-  });
+  options.classList.remove("mixed-answer");
+  if (!current.payload) options.setAttribute("role", "radiogroup");
+  if (current.payload)
+    window.PUPIL_TYPES.render(
+      options,
+      current.payload,
+      (value) => {
+        selected = value;
+        $("submitAnswer").disabled = value === null;
+      },
+      () => !answered && !busy,
+    );
+  else
+    current.options.forEach((value, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "option";
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", "false");
+      b.tabIndex = i === 0 ? 0 : -1;
+      b.innerHTML =
+        '<span class="circle" aria-hidden="true"></span><span>' + esc(value) + "</span>";
+      b.onclick = () => {
+        if (answered || busy) return;
+        selected = i;
+        options.querySelectorAll("button").forEach((el) => {
+          el.classList.remove("selected");
+          el.setAttribute("aria-checked", "false");
+          el.tabIndex = -1;
+        });
+        b.classList.add("selected");
+        b.setAttribute("aria-checked", "true");
+        b.tabIndex = 0;
+        $("submitAnswer").disabled = false;
+      };
+      b.onkeydown = (event) => {
+        const directions = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+        if (answered || busy || !(event.key in directions)) return;
+        event.preventDefault();
+        const target =
+          options.children[
+            (i + directions[event.key] + current.options.length) % current.options.length
+          ];
+        target.focus();
+        target.click();
+      };
+      options.append(b);
+    });
   seconds = Math.max(0, Number(q.seconds_remaining));
   show("question");
   runTimer();
@@ -354,6 +431,7 @@ async function submit(timedOut) {
   busy = true;
   stopTimer();
   $("submitAnswer").disabled = true;
+  if (current.payload) window.PUPIL_TYPES.disable();
   $("questionError").textContent = "Saving your answer…";
   try {
     const r = await api.answer(attempt, timedOut ? null : selected);
@@ -367,11 +445,13 @@ async function submit(timedOut) {
     updateExitProgress();
     lastFeedback = r;
     const correctIndex = Number(r.correct_option),
-      correctText = current.options[correctIndex] ?? "Unavailable";
+      correctText = current.payload
+        ? window.PUPIL_TYPES.correctText(r.correct_answer)
+        : (current.options[correctIndex] ?? "Unavailable");
     $("feedback").className =
       "feedback inline-feedback " + (r.answer_correct ? "correct" : "wrong");
     $("feedback").innerHTML = [
-      `<span class="feedback-tick" aria-hidden="true">${r.answer_correct ? "✓" : "×"}</span><div class="feedback-copy"><strong>${timedOut ? "Time is up" : r.answer_correct ? "Correct!" : "Not quite"}</strong>`,
+      `<span class="feedback-tick" aria-hidden="true">${r.answer_correct ? "✓" : "×"}</span><div class="feedback-copy"><strong>${timedOut || r.timed_out ? "Time is up" : r.answer_correct ? "Correct!" : "Not quite"}</strong>`,
       `<p>Correct answer: ${esc(correctText)}</p>`,
       `<p>${esc(r.feedback || "Review this fact before moving on.")}</p></div>`,
     ].join("");
@@ -428,15 +508,63 @@ async function finish() {
     : "You can try again to reach the pass mark.";
   $("resultAction").textContent = passed ? "⌂ Back to homework" : "⟳ Retry quiz →";
   $("resultAction").onclick = async () => {
-    if (passed) await loadHome();
+    if (passed && !PUPIL_V3) await loadHome();
     else {
       await loadHome();
       $("instructionTitle").textContent = homework.quiz_title;
       show("instructions");
     }
   };
+  if (PUPIL_V3) $("resultAction").textContent = "⟳ Retry quiz →";
+  $("reviewAnswers").classList.toggle("hidden", !PUPIL_V3);
   show("result");
 }
+$("reviewAnswers").onclick = async () => {
+  if (!attempt || busy) return;
+  busy = true;
+  $("reviewError").textContent = "Loading saved answers…";
+  $("reviewContent").replaceChildren();
+  show("review");
+  try {
+    const reference = attempt;
+    const result = await api.review(reference);
+    if (attempt?.id !== reference.id || attempt?.token !== reference.token) return;
+    for (const row of result.answers || []) {
+      const box = document.createElement("article");
+      box.className = "answer-review";
+      const heading = document.createElement("h3");
+      heading.textContent = row.number + ". " + row.prompt;
+      box.append(heading);
+      for (const clue of row.question?.clues || []) {
+        const p = document.createElement("p");
+        p.textContent = clue;
+        box.append(p);
+      }
+      for (const text of [
+        "Your answer: " + (row.your_answer_text ?? window.PUPIL_TYPES.reviewText(row)),
+        row.timed_out ? "Time expired — not scored" : row.correct ? "Correct" : "Not correct",
+        "Correct answer: " +
+          (typeof row.correct_answer === "string"
+            ? row.correct_answer
+            : window.PUPIL_TYPES.correctText(row.correct_answer)),
+        row.explanation,
+      ]) {
+        const p = document.createElement("p");
+        p.textContent = text;
+        box.append(p);
+      }
+      $("reviewContent").append(box);
+    }
+    $("reviewError").textContent = "Your saved answers and server-marked results.";
+  } catch {
+    $("reviewError").textContent =
+      "Could not load your answer review. Check your connection and try Review my answers again.";
+  } finally {
+    busy = false;
+  }
+};
+$("reviewBack").onclick = () => show("result");
+$("reviewRetry").onclick = () => $("resultAction").click();
 function updateExitProgress() {
   if (!current) return;
   const saved = answered ? current.number : current.number - 1;
