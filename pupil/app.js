@@ -5,6 +5,7 @@ const PUPIL_V3 = SUPABASE_URL === "https://ohkpvuhzvshjglbqyepq.supabase.co";
 const linkedQuiz = PUPIL_V3 ? new URLSearchParams(location.search).get("quiz") : null;
 let pupilEpoch = 0;
 let homeFingerprint = "";
+let homeRequest = 0;
 const screens = [
   "login",
   "loading",
@@ -252,11 +253,13 @@ function homeworkCard(h, wrap, ribbon) {
   }
 }
 async function loadHome({ quiet = false } = {}) {
+  const request = ++homeRequest;
   timeoutPending = false;
   stopTimer();
   if (!quiet) show("loading");
   try {
     const h = await api.home(code);
+    if (request !== homeRequest || (quiet && (activeScreen !== "home" || busy))) return;
     if (!h?.valid_code) {
       code = "";
       show("login");
@@ -299,6 +302,7 @@ async function loadHome({ quiet = false } = {}) {
     }
     show("home");
   } catch (e) {
+    if (request !== homeRequest || (quiet && (activeScreen !== "home" || busy))) return;
     if (PUPIL_V3 && e.message === "invalid_quiz_link") {
       homework = null;
       attempt = null;
